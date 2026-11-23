@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>스마트 복약 관리기</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: Arial, "Malgun Gothic", sans-serif;
+      font-size: 17px; line-height: 1.55; color: #17212b; background: #f3f6fa;
+    }
+    header {
+      background: #123f68; color: white; padding: 18px 16px;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+    }
+    header h1 { margin: 0 auto 0 0; font-size: 25px; }
+    main { width: min(900px, 100%); margin: 22px auto; padding: 0 15px 30px; }
+    section { background: white; border-radius: 14px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 10px #152b4210; }
+    h2 { margin-top: 0; font-size: 22px; }
+    h3 { margin: 0 0 8px; font-size: 19px; }
+    button, input, select, textarea { font: inherit; }
+    button {
+      min-height: 46px; padding: 9px 15px; border: 1px solid #9aabba;
+      border-radius: 9px; background: #fff; color: #17344d; cursor: pointer;
+    }
+    button:hover { background: #edf4fa; }
+    button.primary { background: #14588d; color: white; border-color: #14588d; }
+    button.primary:hover { background: #0d466f; }
+    button.danger { color: #a32626; border-color: #d8a3a3; }
+    header button { color: #123f68; }
+    label { display: block; margin: 13px 0 5px; font-weight: 700; }
+    input, select, textarea {
+      width: 100%; min-height: 45px; padding: 9px 11px;
+      border: 1px solid #aab8c5; border-radius: 8px; background: white;
+    }
+    input[type="checkbox"] { width: auto; min-height: auto; }
+    .toolbar, .button-row, .inline-row { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+    .toolbar { justify-content: space-between; margin-bottom: 12px; }
+    .toolbar .filter { min-width: 190px; }
+    .note { color: #526474; font-size: 14px; }
+    .message { color: #14588d; min-height: 1.4em; }
+    .error { color: #b3261e; min-height: 1.4em; }
+    .hidden { display: none !important; }
+    .card { border: 1px solid #d6e0e8; border-left: 7px solid #29945d; border-radius: 11px; padding: 15px; margin: 12px 0; }
+    .card.orange { border-left-color: #df941e; }
+    .card.red { border-left-color: #c84444; }
+    .card p { margin: 5px 0; }
+    .days-left { font-weight: 700; }
+    .refill { background: #fff5e6; padding: 10px; border-radius: 8px; margin: 10px 0; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 14px 0; }
+    .stat { background: #edf4fa; border-radius: 9px; padding: 12px; }
+    .stat strong { display: block; font-size: 22px; }
+    .alarm-overlay {
+      position: fixed; inset: 0; z-index: 10; background: #0009;
+      display: flex; align-items: center; justify-content: center; padding: 18px;
+    }
+    .alarm-box { background: white; border-radius: 15px; padding: 24px; width: min(440px, 100%); box-shadow: 0 8px 35px #0004; }
+    .alarm-box h2 { color: #123f68; }
+    footer { text-align: center; color: #596a78; font-size: 13px; padding: 10px 18px 25px; }
+    @media (max-width: 600px) {
+      body { font-size: 16px; }
+      header h1 { width: 100%; }
+      header button { flex: 1; }
+      section { padding: 15px; }
+      .toolbar > * { width: 100%; }
+      .button-row button { flex: 1 1 42%; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>스마트 복약 관리기</h1>
+  <button id="showDashboardButton">약 목록</button>
+  <button id="showSettingsButton">설정</button>
+</header>
+
+<main>
+  <section id="dashboardSection">
+    <h2>복약 관리</h2>
+    <div class="toolbar">
+      <button id="addMedicineButton" class="primary">+ 약 등록</button>
+      <div class="filter">
+        <label for="personFilter">복용자별 보기</label>
+        <select id="personFilter"><option value="">전체</option></select>
+      </div>
+    </div>
+    <p class="note">알림은 이 페이지가 브라우저에서 열려 있을 때 작동합니다. 페이지를 닫거나 기기가 절전 상태이면 알림이 늦어질 수 있습니다.</p>
+    <div class="stats">
+      <div class="stat"><strong id="medicineCount">0</strong>등록된 약</div>
+      <div class="stat"><strong id="todayCount">0</strong>오늘 복용 확인</div>
+      <div class="stat"><strong id="lowCount">0</strong>재구매 확인 필요</div>
+    </div>
+    <p id="dashboardMessage" class="message" aria-live="polite"></p>
+    <div id="cardList"></div>
+    <p id="emptyMessage">등록된 약이 없습니다. ‘약 등록’을 눌러 시작하세요.</p>
+  </section>
+
+  <section id="formSection" class="hidden">
+    <h2 id="formTitle">약 등록</h2>
+    <input type="hidden" id="editId">
+    <label for="personInput">복용자 이름</label>
+    <input id="personInput" type="text" placeholder="예: 홍길동" maxlength="40">
+    <label for="medicineNameInput">약 이름</label>
+    <input id="medicineNameInput" type="text" placeholder="예: 처방약 A" maxlength="80">
+    <label for="tabletsPerDoseInput">한 번 복용할 때 먹는 개수</label>
+    <input id="tabletsPerDoseInput" type="number" min="0.5" step="0.5" value="1">
+    <label for="doseTimesInput">복용 시간 (쉼표로 구분, 예: 08:00, 20:00)</label>
+    <input id="doseTimesInput" type="text" placeholder="08:00, 20:00">
+    <label for="stockCountInput">현재 남은 약 개수</label>
+    <input id="stockCountInput" type="number" min="0" step="0.5" value="0">
+    <label for="refillWarningInput">재구매 알림 기준 (남은 일수)</label>
+    <input id="refillWarningInput" type="number" min="0" step="1" value="5">
+    <label class="inline-row"><input id="repeatSelect" type="checkbox" checked> 계속 복용하는 약</label>
+    <label for="notesInput">메모 (선택)</label>
+    <textarea id="notesInput" rows="2" placeholder="선택 사항"></textarea>
+    <p id="formError" class="error" role="alert"></p>
+    <div class="button-row">
+      <button id="saveMedicineButton" class="primary">저장</button>
+      <button id="cancelFormButton">취소</button>
+    </div>
+  </section>
+
+  <section id="stockSection" class="hidden">
+    <h2 id="stockTitle">약 수량 변경</h2>
+    <label id="stockLabel" for="stockInput">수량</label>
+    <input id="stockInput" type="number" min="0" step="0.5">
+    <p id="stockError" class="error"></p>
+    <div class="button-row">
+      <button id="stockSaveButton" class="primary">저장</button>
+      <button id="stockCancelButton">취소</button>
+    </div>
+  </section>
+
+  <section id="settingsSection" class="hidden">
+    <h2>설정</h2>
+    <p>복용 알림을 받으려면 브라우저 알림 권한을 허용하세요.</p>
+    <button id="notificationButton" class="primary">브라우저 알림 허용</button>
+    <p id="notificationStatus" class="note" aria-live="polite"></p>
+    <p class="note">알림 권한을 허용해도 페이지가 닫힌 상태에서 알림이 항상 작동하는 것은 아닙니다.</p>
+    <button id="backDashboardButton">약 목록으로 돌아가기</button>
+  </section>
+</main>
+
+<div id="alarmPopup" class="alarm-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="alarmText">
+  <div class="alarm-box">
+    <h2 id="alarmText">복용 시간입니다.</h2>
+    <p id="alarmPerson"></p>
+    <p class="note">처방전 또는 의료진의 안내에 따라 복용 여부를 확인하세요.</p>
+    <div class="button-row">
+      <button id="alarmTakenButton" class="primary">복용 확인</button>
+      <button id="alarmSnoozeButton">10분 뒤 다시 알림</button>
+    </div>
+  </div>
+</div>
+
+<footer>
+  이 프로그램은 복용 일정과 사용자가 입력한 정보를 관리하는 학습용 예시입니다.
+  진단·처방을 제공하지 않으며, 약의 종류와 복용량은 의료진의 처방을 따르세요.
+  복용 확인 버튼은 사용자의 확인 기록일 뿐 실제 복용 여부를 증명하지 않습니다.
+</footer>
+
+<script>
+"use strict";
+
+/* -------------------- 데이터 저장 및 계산 -------------------- */
+const MEDICINES_KEY = "medstock_medicines_v2";
+const SETTINGS_KEY = "medstock_settings_v2";
+const HISTORY_KEY = "medstock_history_v2";
+const CHECK_EVERY_MILLISECONDS = 15000;
+const SNOOZE_MILLISECONDS = 10 * 60 * 1000;
+
+let medicineList = [];
+let historyList = [];
+let settings = { notificationsEnabled: false };
+let deleteWaitingId = "";
+let stockMode = "";
+let stockMedicineId = "";
+let firedAlarmList = [];
+let waitingAlarmList = [];
+let snoozedAlarmList = [];
+let currentAlarm = null;
+let alarmTimer = null;
+let audioContext = null;
+
+const $ = id => document.getElementById(id);
+
+function loadData() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MEDICINES_KEY) || "[]");
+    medicineList = Array.isArray(saved) ? saved.filter(isUsableMedicine) : [];
+  } catch { medicineList = []; }
+  try {
+    const saved = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    historyList = Array.isArray(saved) ? saved : [];
+  } catch { historyList = []; }
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    if (saved && typeof saved === "object") settings = { ...settings, ...saved };
+  } catch { settings = { notificationsEnabled: false }; }
+}
+
+function isUsableMedicine(item) {
+  return item && typeof item === "object" &&
+    typeof item.id === "string" &&
+    typeof item.personName === "string" &&
+    typeof item.medicineName === "string" &&
+    Array.isArray(item.doseTimes) &&
+    typeof item.tabletsPerDose === "number" &&
+    typeof item.stockCount === "number";
+}
+
+function saveMedicines() {
+  localStorage.setItem(MEDICINES_KEY, JSON.stringify(medicineList));
+}
+function saveHistory() {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(historyList.slice(-300)));
+}
+function saveSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+function makeId() {
+  return Date.now().toString() + "-" + Math.floor(Math.random() * 100000);
+}
+function todayText() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function currentTimeText() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+function isValidTime(value) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+function parseDoseTimes(value) {
+  return [...new Set(value.split(",").map(v => v.trim()).filter(Boolean))].sort();
+}
+function getDoseEventsForToday() {
+  return historyList.filter(item => item.date === todayText() && item.type === "taken").length;
+}
+function dailyDose(medicine) {
+  return medicine.tabletsPerDose * medicine.doseTimes.length;
+}
+function daysLeft(medicine) {
+  const perDay = dailyDose(medicine);
+  if (perDay <= 0) return 0;
+  return Math.floor(Math.max(0, medicine.stockCount) / perDay);
+}
+function statusColor(medicine) {
+  const days = daysLeft(medicine);
+  if (days <= 2) return "red";
+  if (days <= Number(medicine.refillWarningDays || 5)) return "orange";
+  return "";
+}
+function needsRefill(medicine) {
+  return medicine.repeatMedicine && daysLeft(medicine) <= Number(medicine.refillWarningDays || 5);
+}
+function findMedicine(id) {
+  return medicineList.find(item => item.id === id);
+}
+function recordHistory(type, medicine, extra = {}) {
+  historyList.push({
+    id: makeId(), type, medicineId: medicine.id,
+    medicineName: medicine.medicineName, personName: medicine.personName,
+    date: todayText(), time: currentTimeText(), ...extra
+  });
+  saveHistory();
+}
+
+/* -------------------- 화면 전환 및 약 등록 -------------------- */
+function showSection(id) {
+  ["dashboardSection","formSection","stockSection","settingsSection"].forEach(sectionId => {
+    $(sectionId).classList.toggle("hidden", sectionId !== id);
+  });
+  deleteWaitingId = "";
+}
+function showDashboard() {
+  renderDashboard();
+  showSection("dashboardSection");
+}
+function openNewForm() {
+  $("formTitle").textContent = "약 등록";
+  $("editId").value = "";
+  $("personInput").value = "";
+  $("medicineNameInput").value = "";
+  $("tabletsPerDoseInput").value = "1";
+  $("doseTimesInput").value = "";
+  $("stockCountInput").value = "0";
+  $("refillWarningInput").value = "5";
+  $("repeatSelect").checked = true;
+  $("notesInput").value = "";
+  $("formError").textContent = "";
+  showSection("formSection");
+}
+function openEditForm(id) {
+  const m = findMedicine(id);
+  if (!m) return;
+  $("formTitle").textContent = "약 정보 수정";
+  $("editId").value = m.id;
+  $("personInput").value = m.personName;
+  $("medicineNameInput").value = m.medicineName;
+  $("tabletsPerDoseInput").value = m.tabletsPerDose;
+  $("doseTimesInput").value = m.doseTimes.join(", ");
+  $("stockCountInput").value = m.stockCount;
+  $("refillWarningInput").value = m.refillWarningDays ?? 5;
+  $("repeatSelect").checked = !!m.repeatMedicine;
+  $("notesInput").value = m.notes || "";
+  $("formError").textContent = "";
+  showSection("formSection");
+}
+function readForm() {
+  return {
+    id: $("editId").value || makeId(),
+    personName: $("personInput").value.trim(),
+    medicineName: $("medicineNameInput").value.trim(),
+    tabletsPerDose: Number($("tabletsPerDoseInput").value),
+    doseTimes: parseDoseTimes($("doseTimesInput").value),
+    stockCount: Number($("stockCountInput").value),
+    refillWarningDays: Number($("refillWarningInput").value),
+    repeatMedicine: $("repeatSelect").checked,
+    notes: $("notesInput").value.trim()
+  };
+}
+function validateMedicine(m) {
+  if (!m.personName) return "복용자 이름을 입력해 주세요.";
+  if (!m.medicineName) return "약 이름을 입력해 주세요.";
+  if (!Number.isFinite(m.tabletsPerDose) || m.tabletsPerDose <= 0) return "1회 복용 개수는 0보다 커야 합니다.";
+  if (!Number.isFinite(m.stockCount) || m.stockCount < 0) return "남은 약 개수는 0 이상이어야 합니다.";
+  if (!Number.isFinite(m.refillWarningDays) || m.refillWarningDays < 0) return "재구매 알림 기준은 0 이상이어야 합니다.";
+  if (m.doseTimes.length === 0) return "복용 시간을 한 개 이상 입력해 주세요.";
+  if (m.doseTimes.some(t => !isValidTime(t))) return "복용 시간은 08:00처럼 24시간 형식으로 입력해 주세요.";
+  return "";
+}
+function saveMedicineFromForm() {
+  const m = readForm();
+  const error = validateMedicine(m);
+  if (error) { $("formError").textContent = error; return; }
+  const index = medicineList.findIndex(item => item.id === m.id);
+  if (index >= 0) medicineList[index] = m;
+  else medicineList.push(m);
+  saveMedicines();
+  showDashboard();
+}
+
+/* -------------------- 약 목록, 카드, 필터 -------------------- */
+function el(tag, text, className = "") {
+  const node = document.createElement(tag);
+  node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+function makeButton(text, action, id, className = "") {
+  const b = document.createElement("button");
+  b.textContent = text;
+  b.dataset.action = action;
+  b.dataset.id = id;
+  if (className) b.className = className;
+  b.addEventListener("click", handleCardAction);
+  return b;
+}
+function updatePersonFilter() {
+  const filter = $("personFilter");
+  const previous = filter.value;
+  filter.replaceChildren(new Option("전체", ""));
+  [...new Set(medicineList.map(m => m.personName).filter(Boolean))].sort().forEach(name => {
+    filter.add(new Option(name, name));
+  });
+  filter.value = [...filter.options].some(o => o.value === previous) ? previous : "";
+}
+function renderDashboard() {
+  updatePersonFilter();
+  const chosen = $("personFilter").value;
+  const list = medicineList
+    .filter(m => !chosen || m.personName === chosen)
+    .sort((a,b) => daysLeft(a) - daysLeft(b));
+  const cardList = $("cardList");
+  cardList.replaceChildren();
+  list.forEach(m => {
+    const card = el("article", "", `card ${statusColor(m)}`);
+    card.appendChild(el("h3", m.medicineName));
+    card.appendChild(el("p", `복용자: ${m.personName}`));
+    card.appendChild(el("p", `복용 시간: ${m.doseTimes.join(", ")}`));
+    card.appendChild(el("p", `1회 복용 개수: ${m.tabletsPerDose}개`));
+    card.appendChild(el("p", `현재 입력된 남은 약: ${m.stockCount}개`));
+    card.appendChild(el("p", `예상 잔여 일수: ${daysLeft(m)}일`, "days-left"));
+    if (m.notes) card.appendChild(el("p", `메모: ${m.notes}`));
+    if (needsRefill(m)) {
+      const refill = el("div", "", "refill");
+      refill.appendChild(el("strong", "약이 부족할 수 있습니다. 재고를 확인해 주세요."));
+      card.appendChild(refill);
+    }
+    const row = el("div", "", "button-row");
+    row.append(
+      makeButton("복용 시간 수정", "edit", m.id),
+      makeButton("약 추가 구매", "bought", m.id),
+      makeButton("실제 수량 수정", "correct", m.id),
+      makeButton(deleteWaitingId === m.id ? "한 번 더 눌러 삭제" : "삭제", "delete", m.id, "danger")
+    );
+    card.appendChild(row);
+    cardList.appendChild(card);
+  });
+  $("emptyMessage").classList.toggle("hidden", list.length > 0);
+  $("medicineCount").textContent = medicineList.length;
+  $("todayCount").textContent = getDoseEventsForToday();
+  $("lowCount").textContent = medicineList.filter(needsRefill).length;
+}
+function handleCardAction(event) {
+  const { action, id } = event.currentTarget.dataset;
+  if (action === "edit") openEditForm(id);
+  if (action === "bought" || action === "correct") openStockPanel(action, id);
+  if (action === "delete") {
+    if (deleteWaitingId === id) {
+      medicineList = medicineList.filter(m => m.id !== id);
+      saveMedicines();
+      deleteWaitingId = "";
+    } else {
+      deleteWaitingId = id;
+    }
+    renderDashboard();
+  }
+}
+
+/* -------------------- 약 재고 수정 -------------------- */
+function openStockPanel(mode, id) {
+  stockMode = mode;
+  stockMedicineId = id;
+  const m = findMedicine(id);
+  if (!m) return;
+  $("stockTitle").textContent = mode === "bought" ? `${m.medicineName} 추가 구매` : `${m.medicineName} 수량 수정`;
+  $("stockLabel").textContent = mode === "bought" ? "새로 구매한 약 개수" : "실제로 남아 있는 약 개수";
+  $("stockInput").value = "";
+  $("stockError").textContent = "";
+  showSection("stockSection");
+}
+function saveStock() {
+  const amount = Number($("stockInput").value);
+  const m = findMedicine(stockMedicineId);
+  if (!m || !Number.isFinite(amount) || amount < 0 || (stockMode === "bought" && amount <= 0)) {
+    $("stockError").textContent = "0 이상의 올바른 수량을 입력해 주세요. 추가 구매는 0보다 커야 합니다.";
+    return;
+  }
+  m.stockCount = stockMode === "bought" ? m.stockCount + amount : amount;
+  saveMedicines();
+  showDashboard();
+}
+
+/* -------------------- 복용 알림 및 확인 기록 -------------------- */
+function makeAlarmKey(m, time) {
+  return `${todayText()}|${m.id}|${time}`;
+}
+function beep() {
+  try {
+    audioContext = audioContext || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioContext.state === "suspended") audioContext.resume();
+    for (let i = 0; i < 3; i++) {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.frequency.value = 880;
+      gain.gain.value = 0.08;
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start(audioContext.currentTime + i * 0.55);
+      oscillator.stop(audioContext.currentTime + i * 0.55 + 0.25);
+    }
+  } catch (error) { console.log("알림 소리를 재생할 수 없습니다.", error); }
+}
+function browserNotify(alarm) {
+  if ("Notification" in window && Notification.permission === "granted") {
+    try {
+      new Notification("복용 시간 알림", {
+        body: `${alarm.personName}님: ${alarm.medicineName} ${alarm.tabletsPerDose}개 복용 시간입니다.`
+      });
+    } catch (error) { console.log(error); }
+  }
+}
+function showNextAlarm() {
+  if (currentAlarm || waitingAlarmList.length === 0) return;
+  currentAlarm = waitingAlarmList.shift();
+  $("alarmText").textContent = `${currentAlarm.medicineName} 복용 시간입니다.`;
+  $("alarmPerson").textContent = `${currentAlarm.personName}님, 처방된 복용량을 확인해 주세요. (1회 ${currentAlarm.tabletsPerDose}개)`;
+  $("alarmPopup").classList.remove("hidden");
+  beep();
+  browserNotify(currentAlarm);
+}
+function checkAlarms() {
+  const now = currentTimeText();
+  medicineList.forEach(m => m.doseTimes.forEach(time => {
+    const key = makeAlarmKey(m, time);
+    if (time === now && !firedAlarmList.includes(key)) {
+      firedAlarmList.push(key);
+      waitingAlarmList.push({
+        medicineId: m.id, medicineName: m.medicineName,
+        personName: m.personName, tabletsPerDose: m.tabletsPerDose,
+        scheduledTime: time
+      });
+    }
+  }));
+  const remaining = [];
+  snoozedAlarmList.forEach(item => {
+    if (Date.now() >= item.showAt) waitingAlarmList.push(item.alarm);
+    else remaining.push(item);
+  });
+  snoozedAlarmList = remaining;
+  showNextAlarm();
+}
+function finishAlarm(wasConfirmed) {
+  $("alarmPopup").classList.add("hidden");
+  if (currentAlarm && wasConfirmed) {
+    const m = findMedicine(currentAlarm.medicineId);
+    if (m) {
+      m.stockCount = Math.max(0, Number(m.stockCount) - Number(m.tabletsPerDose));
+      saveMedicines();
+      recordHistory("taken", m, { scheduledTime: currentAlarm.scheduledTime });
+    }
+  } else if (currentAlarm) {
+    const m = findMedicine(currentAlarm.medicineId);
+    if (m) recordHistory("dismissed", m, { scheduledTime: currentAlarm.scheduledTime });
+  }
+  currentAlarm = null;
+  renderDashboard();
+  showNextAlarm();
+}
+function snoozeAlarm() {
+  if (!currentAlarm) return;
+  snoozedAlarmList.push({ alarm: currentAlarm, showAt: Date.now() + SNOOZE_MILLISECONDS });
+  $("alarmPopup").classList.add("hidden");
+  currentAlarm = null;
+  showNextAlarm();
+}
+function startAlarmChecker() {
+  $("alarmTakenButton").addEventListener("click", () => finishAlarm(true));
+  $("alarmSnoozeButton").addEventListener("click", snoozeAlarm);
+  checkAlarms();
+  alarmTimer = setInterval(checkAlarms, CHECK_EVERY_MILLISECONDS);
+}
+
+/* -------------------- 설정 -------------------- */
+function openSettings() {
+  showNotificationStatus();
+  showSection("settingsSection");
+}
+function showNotificationStatus() {
+  const target = $("notificationStatus");
+  if (!("Notification" in window)) target.textContent = "이 브라우저는 알림 기능을 지원하지 않습니다.";
+  else if (Notification.permission === "granted") target.textContent = "브라우저 알림이 허용되어 있습니다.";
+  else if (Notification.permission === "denied") target.textContent = "알림이 차단되어 있습니다. 브라우저 사이트 설정에서 변경해 주세요.";
+  else target.textContent = "아직 알림 권한을 허용하지 않았습니다.";
+}
+async function askNotificationPermission() {
+  if (!("Notification" in window)) {
+    $("notificationStatus").textContent = "이 브라우저는 알림 기능을 지원하지 않습니다.";
+    return;
+  }
+  try {
+    await Notification.requestPermission();
+    showNotificationStatus();
+  } catch {
+    $("notificationStatus").textContent = "알림 권한을 설정하지 못했습니다.";
+  }
+}
+
+/* -------------------- 버튼 연결 및 시작 -------------------- */
+function connectButtons() {
+  $("showDashboardButton").addEventListener("click", showDashboard);
+  $("showSettingsButton").addEventListener("click", openSettings);
+  $("backDashboardButton").addEventListener("click", showDashboard);
+  $("addMedicineButton").addEventListener("click", openNewForm);
+  $("saveMedicineButton").addEventListener("click", saveMedicineFromForm);
+  $("cancelFormButton").addEventListener("click", showDashboard);
+  $("stockSaveButton").addEventListener("click", saveStock);
+  $("stockCancelButton").addEventListener("click", showDashboard);
+  $("personFilter").addEventListener("change", renderDashboard);
+  $("notificationButton").addEventListener("click", askNotificationPermission);
+}
+function startApp() {
+  loadData();
+  connectButtons();
+  showDashboard();
+  startAlarmChecker();
+}
+startApp();
+</script>
+</body>
+</html>
